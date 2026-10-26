@@ -4,6 +4,8 @@
 
 # cursor-byok
 
+> **Zhao fork：** 本仓库为 [zwq871482439/cursor-byok](https://github.com/zwq871482439/cursor-byok)，自已 archived 的上游 1.0.1 fork。协议重抽与补丁发版走 1.0.1-zhao.N，见 [MAINTENANCE-ZHAO.md](./MAINTENANCE-ZHAO.md)。
+
 cursor-byok 是一个运行在本机的 Cursor 模型网关，帮助你在 Cursor 中使用自己配置的模型服务。
 
 [English README](./README.md) · [使用指南](https://docs.leokun.cn) · [下载](https://github.com/leookun/cursor-byok/releases/latest) · [提交问题](https://github.com/leookun/cursor-byok/issues)
@@ -223,3 +225,4 @@ make build-docker    # 构建 Docker 镜像
 ## 许可证
 
 本项目采用 [MIT License](./LICENSE) 开源。
+

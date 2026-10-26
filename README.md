@@ -3,6 +3,8 @@
 <div align="center">
 
 # cursor-byok
+
+> **Zhao fork:** This is [zwq871482439/cursor-byok](https://github.com/zwq871482439/cursor-byok), forked from archived upstream 1.0.1. Protocol-refresh / patch releases use the 1.0.1-zhao.N line — see [MAINTENANCE-ZHAO.md](./MAINTENANCE-ZHAO.md).
 cursor-byok is a local implementation of Cursor's backend.
 <br>
 <br>
@@ -109,5 +111,6 @@ Issues and pull requests are welcome. See the [Contributing Guide](./CONTRIBUTIN
 ## License
 
 This project is open source under the [MIT License](./LICENSE).
+
 
 
