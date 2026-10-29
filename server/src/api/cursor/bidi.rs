@@ -180,6 +180,25 @@ pub fn decode(request: &ai::BidiAppendRequest) -> Result<DecodedAppend> {
     })
 }
 
+fn run_request_has_action(message: &agent::AgentClientMessage) -> bool {
+    match message.message.as_ref() {
+        Some(agent::agent_client_message::Message::RunRequest(run)) => run
+            .action
+            .as_ref()
+            .is_some_and(|action| action.action.is_some()),
+        _ => true,
+    }
+}
+
+/// True when the BidiAppend carries an `aiserver.v1.RunInferenceClientMessage`
+/// (not an `AgentClientMessage`). Such appends belong to Cursor's
+/// `InferenceService/RunInference*` stream and are forwarded upstream as-is.
+pub fn is_run_inference_append(request: &ai::BidiAppendRequest) -> bool {
+    hex::decode(&request.data)
+        .map(|payload| super::wire_sanitize::is_run_inference_client_message(&payload))
+        .unwrap_or(false)
+}
+
 fn decode_agent_client_message(payload: &[u8]) -> Result<agent::AgentClientMessage> {
     match agent::AgentClientMessage::decode(payload) {
         Ok(message) => Ok(message),
@@ -241,6 +260,11 @@ fn decode_agent_client_message(payload: &[u8]) -> Result<agent::AgentClientMessa
                 ) {
                     super::wire_sanitize::dump_wire("prune_arr", payload, Some(&pruned), &notes);
                     match agent::AgentClientMessage::decode(pruned.as_slice()) {
+                        Ok(message) if !run_request_has_action(&message) => {
+                            tracing::warn!(
+                                "prune_run_request_fields produced a RunRequest without action; rejecting"
+                            );
+                        }
                         Ok(message) => {
                             tracing::warn!(
                                 notes = ?notes.lines,

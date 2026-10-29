@@ -232,7 +232,42 @@ async fn bidi_handler(
 ) -> Result<Response<Body>> {
     let (parts, body) = buffered(request).await?;
     let request: ai::BidiAppendRequest = connect::decode_unary(&body)?;
-    let decoded = bidi::decode(&request)?;
+    let request_id = request
+        .request_id
+        .as_ref()
+        .map(|id| id.request_id.clone())
+        .unwrap_or_default();
+    if bidi::is_run_inference_append(&request) {
+        // Cursor's client-driven RunInference stream, not AgentService/Run.
+        // BYOK cannot serve it locally; hand it to Cursor unchanged instead of
+        // mis-decoding it as an AgentClientMessage (which produced runs with
+        // no user message -> "assistant message prefill" 400s).
+        tracing::warn!(
+            request_id,
+            "BidiAppend is aiserver.v1.RunInferenceClientMessage; forwarding upstream"
+        );
+        if !request_id.is_empty() {
+            registry.mark_upstream(&request_id).await;
+        }
+        return proxy::forward(
+            Extension(proxy),
+            Request::from_parts(parts, Body::from(body)),
+        )
+        .await;
+    }
+    let decoded = match bidi::decode(&request) {
+        Ok(decoded) => decoded,
+        Err(error) if !request_id.is_empty() && registry.upstream(&request_id).await => {
+            // Follow-up append on a stream already handed to Cursor upstream.
+            tracing::debug!(request_id, %error, "undecodable append on upstream stream; forwarding");
+            return proxy::forward(
+                Extension(proxy),
+                Request::from_parts(parts, Body::from(body)),
+            )
+            .await;
+        }
+        Err(error) => return Err(error),
+    };
     let first_model = decoded.model_id().map(str::to_owned);
     let conversation_id = decoded.conversation_id().map(str::to_owned);
     let trace_metadata = decoded.trace_metadata();
