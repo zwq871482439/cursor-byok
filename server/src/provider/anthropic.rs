@@ -52,7 +52,7 @@ impl Provider for AnthropicProvider {
         let recorder = self.recorder.clone();
         Box::pin(try_stream! {
             let ModelInvocation { call_id, request, .. } = invocation;
-            let mut messages = anthropic_messages(&request.history)?;
+            let mut messages = user_terminated_messages(anthropic_messages(&request.history)?)?;
             mark_cache_breakpoint(&mut messages);
             let system = if request.prompt.instructions.is_empty() {
                 Value::String(String::new())
@@ -400,6 +400,42 @@ fn anthropic_messages(messages: &[ProjectedMessage]) -> Result<Vec<Value>> {
     Ok(output)
 }
 
+/// Anthropic rejects requests whose `messages` are empty or end with an
+/// assistant turn ("This model does not support assistant message prefill").
+/// Drop trailing assistant turns that carry no `tool_use` (pure text/thinking
+/// prefill). A trailing `tool_use` without its `tool_result`, or a request with
+/// no user turn left, is a BYOK mapping bug: fail locally with a clear error
+/// rather than inventing user content.
+fn user_terminated_messages(mut messages: Vec<Value>) -> Result<Vec<Value>> {
+    while let Some(last) = messages.last() {
+        if last.get("role").and_then(Value::as_str) != Some("assistant") {
+            break;
+        }
+        let has_tool_use = last
+            .get("content")
+            .and_then(Value::as_array)
+            .is_some_and(|blocks| {
+                blocks
+                    .iter()
+                    .any(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))
+            });
+        if has_tool_use {
+            return Err(Error::Protocol(
+                "Anthropic request ends with assistant tool_use without tool_result".into(),
+            ));
+        }
+        tracing::warn!("dropping trailing assistant prefill before Anthropic request");
+        messages.pop();
+    }
+    if messages.is_empty() {
+        return Err(Error::Protocol(
+            "Anthropic request has no user message (Cursor turn carried no mapped user input)"
+                .into(),
+        ));
+    }
+    Ok(messages)
+}
+
 fn mark_cache_breakpoint(messages: &mut [Value]) {
     let Some(message) = messages
         .iter_mut()
@@ -505,6 +541,48 @@ pub(crate) fn anthropic_usage(value: &Value) -> Usage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_terminated_messages_rejects_empty() {
+        let err = user_terminated_messages(Vec::new()).unwrap_err();
+        assert!(err.to_string().contains("no user message"));
+    }
+
+    #[test]
+    fn user_terminated_messages_drops_trailing_text_prefill() {
+        let messages = vec![
+            json!({"role":"user","content":[{"type":"text","text":"hi"}]}),
+            json!({"role":"assistant","content":[{"type":"text","text":"partial"}]}),
+        ];
+        let out = user_terminated_messages(messages).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["role"], "user");
+    }
+
+    #[test]
+    fn user_terminated_messages_only_assistant_is_error() {
+        let messages = vec![json!({"role":"assistant","content":[{"type":"text","text":"x"}]})];
+        assert!(user_terminated_messages(messages).is_err());
+    }
+
+    #[test]
+    fn user_terminated_messages_rejects_dangling_tool_use() {
+        let messages = vec![
+            json!({"role":"user","content":[{"type":"text","text":"hi"}]}),
+            json!({"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"x","input":{}}]}),
+        ];
+        assert!(user_terminated_messages(messages).is_err());
+    }
+
+    #[test]
+    fn user_terminated_messages_keeps_tool_result_tail() {
+        let messages = vec![
+            json!({"role":"user","content":[{"type":"text","text":"hi"}]}),
+            json!({"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"x","input":{}}]}),
+            json!({"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}),
+        ];
+        assert_eq!(user_terminated_messages(messages).unwrap().len(), 3);
+    }
 
     #[test]
     fn cached_tokens_are_included_once_in_anthropic_context_input() {
