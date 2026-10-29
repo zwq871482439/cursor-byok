@@ -1,0 +1,44 @@
+﻿RunInferenceAgentEvent|1 method_name 9|2 options_json 9|3 client_reported_at_ms 3?
+RunInferenceAgentModeConfig|1 mode_id 9|2 enable_ask_question_tool 8|3 switch_mode_tool_config #0?
+RunInferenceAgentModule|1 generation 9|2 source #0|3 channel 9|4 commit 9?|5 interface_revision 13|6 prompt_versions 9*
+RunInferenceAskQuestionConfig|1 tool_name 9|2 auto_reject_first 8
+RunInferenceBackgroundSummarizationConfig|1 unused_tokens_threshold_to_start 5?|2 unused_percent_tokens_threshold_to_start 1?|3 unused_tokens_threshold_to_persist 5?|4 unused_percent_tokens_threshold_to_persist 1?|5 require_trigger_threshold_for_mid_loop_persist 8|6 discard_on_error 8
+RunInferenceCancelInvocation|1 invocation_id 9
+RunInferenceClientFirstCallTimings|1 invocation_id 9|2 attempt_start_to_stream_open_ms 1?|3 stream_open_to_first_server_byte_ms 1?|4 stream_open_to_run_ready_ms 1?|5 run_ready_to_agent_config_ms 1?|6 agent_config_to_run_stream_ms 1?|7 run_stream_to_first_invocation_ms 1?|8 first_invocation_to_frame_handed_ms 1?|9 frame_handed_to_write_settled_ms 1?|10 run_ready_to_frame_handed_ms 1?|11 experiment_arm 9?|12 frame_handed_to_encode_start_ms 1?|13 frame_encode_ms 1?|14 frame_encoded_to_write_settled_ms 1?|15 frame_bytes 13?|16 prewarm_skip_reason 9?
+RunInferenceClientHeartbeat|1 first_call_timings #0
+RunInferenceClientMessage|1 run_request #0 message|2 invoke_model #1 message|3 cancel_invocation #2 message|4 finish_run #3 message|5 client_heartbeat #4 message|6 agent_event #5 message|7 run_request_log #6 message|9 resolve_subagent_models #7 message|10 client_first_call_timings #8 message|11 delta_base_seed #9 message
+RunInferenceCompressedRequest|1 encoding #0|2 decoded_size 13|3 data 12
+RunInferenceDeltaBase|1 invocation_id 9|2 message_count 13|3 prefix_sha256 12|4 reuse_tools 8|5 request_sha256 12
+RunInferenceDeltaBaseSeed|1 invocation_id 9|2 request #0|3 compressed_request #1
+RunInferenceErrorDetail|1 type 9|2 value 12
+RunInferenceExecutePlan|1 plan_file_uri 9?|2 plan_file_content 9?
+RunInferenceFinishRun|1 aborted 8|2 turn_completed 8?|3 tool_call_batches #0*
+RunInferenceFlagValue|1 bool_value 8 value|2 number_value 1 value|3 string_value 9 value
+RunInferenceHeartbeat|1 accepts_speculative_invocations 8|2 accepts_compressed_speculative_invocations 8
+RunInferenceInvocationEnd|1 invocation_id 9|2 error #0?|3 delta_refused #1?
+RunInferenceInvocationError|1 code 5|2 message 9|3 details #0*|4 refusal #1
+RunInferenceInvocationResponse|1 invocation_id 9|2 response #0
+RunInferenceInvokeModel|1 invocation_id 9|2 request #0|3 purpose #1|4 tool_call_batches #2*|5 delta_base #3?|6 config_fingerprint 12?|7 compressed_request #4|8 request_encoding_arm #5
+RunInferenceLongReasoningReminderConfig|1 arm 9|2 enabled 8|3 threshold_tokens 13|4 delay_calls 13|5 reminder_text 9
+RunInferenceLoopNudgeConfig|1 min_repetitions 5|2 min_message_length 5|3 inject_reminder 8
+RunInferencePostToolReminder|1 id 9|2 interval_tool_calls 13?
+RunInferencePromptCacheRefillConfig|1 idle_threshold_ms 13
+RunInferencePromptModelMetadata|1 vendor 9|2 prompt_version 9|3 is_sonnet45 8|4 is_gemini3 8|5 is_gpt51 8|6 is_gpt52 8|7 is_gpt5 8|8 is_gpt55 8|9 is_gpt56 8|10 is_sonnet4 8|11 is_codex_family 8|12 is_gpt54 8|13 is_gpt52_codex 8|14 is_gpt53_codex 8|15 is_gpt53_codex_spark 8|16 is_claude_4x 8|17 is_opus45 8|18 is_opus46 8|19 is_opus48 8|20 is_opus5 8|50 is_opus55 8|21 is_fable5 8|43 is_fable51 8|22 is_fruitcake 8|23 is_gpt5_family 8|24 is_composer1 8|25 is_composer15 8|26 is_composer2 8|27 is_composer_matterhorn 8|28 is_grok45_product_prompt 8|29 is_raw_training_slug 8|34 is_grok46_product_prompt 8|30 reasoning_effort 9?|31 use_dsv3_harness 8|32 agent_token_limit 5?|33 estimated_cache_ttl_ms 5?|35 persona 9|36 feature_flags 9,#0|37 loop_nudge #1?|38 progress_reminder_threshold 5?|39 effort_level 9?|40 supports_assistant_message_prefill 8|41 enable_line_numbers 8|42 use_sparse_read_line_numbers 8|44 self_identity_name 9|45 dsv3_is_thinking 8?|46 agent_mode_configs #2*|47 use_new_plan_mode_prompts 8?|48 ask_question_config #3?|49 subagent_model_config #4?|51 post_tool_reminders #5*|52 enable_semantic_search 8?|53 long_reasoning_reminder #6?|54 smart_mode_classifier_mode 8?|55 smart_mode_classifier_shadow_mode 8?|56 auto_ab_layer_admitted 8?|57 attribution_model_handle 9?|58 stamp_image_content_sha256 8?|59 smart_mode_classifier_invoked_files 8?|60 prompt_key 9?
+RunInferenceRequestCompression|1 encodings #0*|2 max_decoded_bytes 13|3 treatment_percent 13
+RunInferenceResolvedSubagentModel|1 requested 9|2 resolved_slug 9?|3 policy #0?
+RunInferenceResolvedSubagentModelOverride|1 subagent_type 9|2 kind 9|3 model_id 9?
+RunInferenceResolveSubagentModels|1 resolution_id 9|2 requested_models 9*
+RunInferenceRoutingMessage|1 role #0|2 text 9
+RunInferenceRunReady|1 resolved_model #0|2 supports_self_summary 8|3 routed_model_display_name 9?|4 prompt_model_metadata #1|5 summarization #2|6 non_file_rules #3*|7 accepts_client_heartbeat 8|8 accepts_agent_events 8|10 agent_run_request_log_requested 8|9 kv_blob_telemetry_enabled 8|13 accepts_aborted_finish 8|12 metric_labels 9,9|14 accepts_subagent_model_resolution 8|15 accepts_tool_call_events 8|16 accepts_client_first_call_timings 8|17 config_fingerprint 12|18 accepts_delta_invocations 8|19 request_compression #4|20 thinking_notes #5|21 self_summary_flavor 9?|22 self_summary_include_transcript 8|23 accepts_client_first_call_timings_on_heartbeat 8|24 routing_conversation_unread 8|25 prompt_cache_refill #6|26 labeling_usage_token 9?|27 accepts_delta_base_seeds 8
+RunInferenceRunRequest|1 conversation_id 9|2 conversation_group_id 9?|3 requested_model #0|4 routing_conversation #1*|5 agent_mode 9?|6 subagent_type_name 9?|7 selected_subagent_models #0*|8 subagent_model_overrides #2*|9 is_summarize_action 8?|10 supports_long_reasoning_reminder 8|11 agent_module #3?|12 previous_request_id 9?|15 execute_plan #4?|16 turn_agent_mode 9?|17 supports_agent_loop_error 8|18 supports_delta_invocations 8|19 cached_config_fingerprint 12?|20 speculative_invocations 8|21 sends_client_first_call_timings 8|22 prewarm 8|25 supports_model_handles 8?|26 compresses_speculative_invocations 8|27 supports_delta_base_seeds 8
+RunInferenceRunRequestLog|1 agent_run_request 12
+RunInferenceServerMessage|1 heartbeat #0 message|2 run_ready #1 message|3 invocation_response #2 message|4 invocation_end #3 message|5 subagent_models_resolved #4 message
+RunInferenceSubagentModelConfig|1 force_policy 9|2 force_model_id 9?|3 parent_max_mode 8|4 models #0*|5 overrides #1*|6 task_tool_omitted 8|7 parent_requested_model_name 9
+RunInferenceSubagentModelOverride|1 subagent_type 9|2 model #0 selection|3 inherit 8 selection|4 disabled 8 selection
+RunInferenceSubagentModelPolicy|1 slug 9|2 advertised 8|3 valid 8|4 blocked 8|5 requires_max_mode 8|6 representative_cost_dollars 1|7 legacy_aliases 9*|8 turned_off_by_user 8
+RunInferenceSubagentModelsResolved|1 resolution_id 9|2 models #0*
+RunInferenceSummarizationConfig|1 model #0|2 is_fallback_to_main_model 8|3 max_prompt_chars 5|4 background #1
+RunInferenceSwitchModeToolConfig|1 target_modes 9*
+RunInferenceThinkingNotesConfig|1 model #0
+RunInferenceToolCallBatch|1 invocation_id 9?|2 tool_calls #0*
+RunInferenceToolCallEvent|1 tool_call_id 9|2 tool_identifier 9|3 started_at_ms 3|4 ended_at_ms 3|5 success 8|6 error_class 9?|7 error_classification 9?|8 result_chars 13?|9 result_images 13?
