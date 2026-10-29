@@ -172,11 +172,70 @@ pub fn decode(request: &ai::BidiAppendRequest) -> Result<DecodedAppend> {
     }
     let payload = hex::decode(&request.data)
         .map_err(|error| Error::Protocol(format!("invalid BidiAppend hex: {error}")))?;
+    let message = decode_agent_client_message(&payload)?;
     Ok(DecodedAppend {
         request_id: request_id.into(),
         seqno: request.append_seqno,
-        message: agent::AgentClientMessage::decode(payload.as_slice())?,
+        message,
     })
+}
+
+fn decode_agent_client_message(payload: &[u8]) -> Result<agent::AgentClientMessage> {
+    match agent::AgentClientMessage::decode(payload) {
+        Ok(message) => Ok(message),
+        Err(first_err) => {
+            tracing::warn!(
+                error = %first_err,
+                payload_len = payload.len(),
+                "AgentClientMessage decode failed; trying wire_sanitize"
+            );
+            if let Some((sanitized, notes)) =
+                super::wire_sanitize::sanitize_agent_client_message(payload)
+            {
+                super::wire_sanitize::dump_wire("sanitize", payload, Some(&sanitized), &notes);
+                match agent::AgentClientMessage::decode(sanitized.as_slice()) {
+                    Ok(message) => {
+                        tracing::warn!(
+                            notes = ?notes.lines,
+                            "AgentClientMessage recovered via wire_sanitize"
+                        );
+                        return Ok(message);
+                    }
+                    Err(sanitize_err) => {
+                        tracing::warn!(
+                            error = %sanitize_err,
+                            "wire_sanitize still failed; trying clear_conversation_state"
+                        );
+                    }
+                }
+            } else {
+                tracing::warn!("wire_sanitize could not walk ACM; trying clear_conversation_state");
+            }
+
+            if let Some((cleared, notes)) =
+                super::wire_sanitize::clear_conversation_state(payload)
+            {
+                super::wire_sanitize::dump_wire("clear_css", payload, Some(&cleared), &notes);
+                match agent::AgentClientMessage::decode(cleared.as_slice()) {
+                    Ok(message) => {
+                        tracing::warn!(
+                            notes = ?notes.lines,
+                            "AgentClientMessage recovered via clear_conversation_state"
+                        );
+                        return Ok(message);
+                    }
+                    Err(clear_err) => {
+                        tracing::warn!(error = %clear_err, "clear_conversation_state decode failed");
+                    }
+                }
+            }
+
+            let mut notes = super::wire_sanitize::SanitizeNotes::default();
+            notes.push(format!("unrecoverable decode: {first_err}"));
+            super::wire_sanitize::dump_wire("fail", payload, None, &notes);
+            Err(first_err.into())
+        }
+    }
 }
 
 pub async fn append(
