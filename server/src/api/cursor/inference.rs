@@ -401,6 +401,7 @@ impl Session {
             None => model.ok_or_else(|| Error::Protocol("invoke_model before run_request".into()))?,
         };
         let model_request = inference_convert::model_request(request, model)?;
+        let freeform = inference_convert::freeform_tools(request);
         let run_id = format!("ri-{}", self.request_id);
         self.respond(&invoke.invocation_id, stream_response::Response::InvocationId(ri::InferenceInvocationIdInfo {
             invocation_id: invoke.invocation_id.clone(),
@@ -413,7 +414,7 @@ impl Session {
             request: model_request,
         };
         let mut stream = provider.stream(invocation, cancel.clone());
-        let mut writer = ResponseWriter::new(self, &invoke.invocation_id);
+        let mut writer = ResponseWriter::new(self, &invoke.invocation_id, freeform);
         loop {
             let event = tokio::select! {
                 _ = cancel.cancelled() => return Err(Error::Cancelled),
@@ -454,13 +455,16 @@ struct ResponseWriter<'a> {
     replay: Option<crate::model::ProviderReplayState>,
     usage: crate::model::Usage,
     finish: Option<FinishReason>,
+    /// Freeform tool name -> JSON wrapper property (see `freeform_tools`).
+    freeform: HashMap<String, String>,
 }
 
 impl<'a> ResponseWriter<'a> {
-    fn new(session: &'a Session, invocation_id: &'a str) -> Self {
+    fn new(session: &'a Session, invocation_id: &'a str, freeform: HashMap<String, String>) -> Self {
         Self {
             session,
             invocation_id,
+            freeform,
             text: String::new(),
             thinking: String::new(),
             calls: Default::default(),
@@ -504,6 +508,11 @@ impl<'a> ResponseWriter<'a> {
             ModelEvent::ToolCallArgumentsDelta { index, delta } => {
                 if let Some(call) = self.calls.get_mut(&index) {
                     call.args.push_str(&delta);
+                    // Freeform args are JSON-wrapped by the provider; the raw
+                    // text is only sent once complete.
+                    if self.freeform.contains_key(&call.name) {
+                        return false;
+                    }
                     let call_id = call.call_id.clone();
                     self.send(Response::ToolCallPart(ri::InferenceToolCallStreamPart {
                         tool_call_id: call_id,
@@ -530,7 +539,9 @@ impl<'a> ResponseWriter<'a> {
         let Some(mut call) = self.calls.remove(&index) else {
             return;
         };
-        if call.args.trim().is_empty() {
+        if let Some(property) = self.freeform.get(&call.name) {
+            call.args = inference_convert::freeform_args(&call.args, property);
+        } else if call.args.trim().is_empty() {
             call.args = "{}".into();
         }
         self.send(stream_response::Response::ToolCallPart(ri::InferenceToolCallStreamPart {
@@ -597,10 +608,14 @@ impl ResponseWriter<'_> {
                 .map(|call| ri::InferenceToolCall {
                     tool_call_id: call.call_id.clone(),
                     tool_name: call.name.clone(),
-                    args: serde_json::from_str::<serde_json::Value>(&call.args)
-                        .ok()
-                        .as_ref()
-                        .and_then(inference_convert::json_to_struct),
+                    args: if self.freeform.contains_key(&call.name) {
+                        None
+                    } else {
+                        serde_json::from_str::<serde_json::Value>(&call.args)
+                            .ok()
+                            .as_ref()
+                            .and_then(inference_convert::json_to_struct)
+                    },
                     raw_tool_call_args: Some(call.args.clone()),
                 })
                 .collect(),

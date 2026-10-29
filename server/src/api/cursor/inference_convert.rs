@@ -15,7 +15,43 @@ use crate::{
     Error, Result,
 };
 
+/// Freeform (grammar) tools take raw text, which JSON-tool providers cannot
+/// emit. They are advertised with their JSON schema (one string property) and
+/// the string is unwrapped back to raw text on the way out. Returns
+/// tool name -> wrapper property name.
+pub fn freeform_tools(request: &ri::InferenceStreamRequest) -> std::collections::HashMap<String, String> {
+    request
+        .tools
+        .iter()
+        .filter(|tool| tool.custom_tool_format.is_some())
+        .map(|tool| {
+            let schema = object_schema(tool.parameters.as_ref().map(struct_to_json).unwrap_or(Value::Null));
+            let property = schema
+                .get("properties")
+                .and_then(Value::as_object)
+                .and_then(|properties| {
+                    (properties.len() == 1).then(|| properties.keys().next().cloned()).flatten()
+                })
+                .unwrap_or_else(|| "input".into());
+            (tool.name.clone(), property)
+        })
+        .collect()
+}
+
+/// Raw-text argument for a freeform tool from the provider's JSON arguments.
+pub fn freeform_args(json_args: &str, property: &str) -> String {
+    match serde_json::from_str::<Value>(json_args) {
+        Ok(Value::Object(map)) => match map.get(property) {
+            Some(Value::String(text)) => text.clone(),
+            Some(other) => other.to_string(),
+            None => json_args.to_owned(),
+        },
+        _ => json_args.to_owned(),
+    }
+}
+
 pub fn model_request(request: &ri::InferenceStreamRequest, model: ModelSpec) -> Result<ModelRequest> {
+    let freeform = freeform_tools(request);
     let mut instructions = Vec::new();
     let mut history = Vec::with_capacity(request.messages.len());
     for (index, message) in request.messages.iter().enumerate() {
@@ -32,7 +68,7 @@ pub fn model_request(request: &ri::InferenceStreamRequest, model: ModelSpec) -> 
                 role: Role::User,
                 content: ProjectedContent::Parts(user_parts(message)?),
             }),
-            ri::ROLE_ASSISTANT => history.push(assistant(id, message)),
+            ri::ROLE_ASSISTANT => history.push(assistant(id, message, &freeform)),
             ri::ROLE_TOOL => history.extend(tool_results(&id, message)),
             other => {
                 return Err(Error::Protocol(format!(
@@ -142,7 +178,11 @@ fn decode_data(data: &str) -> Result<(Option<String>, Vec<u8>)> {
     Ok((mime, bytes))
 }
 
-fn assistant(id: String, message: &ri::InferenceCoreMessage) -> ProjectedMessage {
+fn assistant(
+    id: String,
+    message: &ri::InferenceCoreMessage,
+    freeform: &std::collections::HashMap<String, String>,
+) -> ProjectedMessage {
     let thinking = message
         .reasoning_parts
         .iter()
@@ -158,7 +198,11 @@ fn assistant(id: String, message: &ri::InferenceCoreMessage) -> ProjectedMessage
             index,
             call_id: call.tool_call_id.clone(),
             name: call.tool_name.clone(),
-            arguments: tool_call_args(call),
+            arguments: match freeform.get(&call.tool_name) {
+                // History holds the raw text; re-wrap it for the JSON schema.
+                Some(property) => serde_json::json!({ property.as_str(): freeform_text(call) }),
+                None => tool_call_args(call),
+            },
         })
         .collect();
     ProjectedMessage {
@@ -195,6 +239,21 @@ fn anthropic_replay(message: &ri::InferenceCoreMessage) -> Option<ProviderReplay
         provider_kind: "anthropic".into(),
         value: serde_json::json!({ "blocks": blocks }),
     })
+}
+
+fn freeform_text(call: &ri::InferenceToolCall) -> String {
+    if let Some(raw) = &call.raw_tool_call_args {
+        return raw.clone();
+    }
+    match call.args.as_ref().map(struct_to_json) {
+        Some(Value::Object(map)) if map.len() == 1 => match map.values().next() {
+            Some(Value::String(text)) => text.clone(),
+            Some(other) => other.to_string(),
+            None => String::new(),
+        },
+        Some(other) => other.to_string(),
+        None => String::new(),
+    }
 }
 
 fn tool_call_args(call: &ri::InferenceToolCall) -> Value {
@@ -242,15 +301,37 @@ fn tool_result_text(result: Option<&prost_types::Value>) -> String {
 }
 
 fn tool_definition(tool: &ri::InferenceAgentTool) -> ToolDefinition {
+    let parameters = object_schema(tool.parameters.as_ref().map(struct_to_json).unwrap_or(Value::Null));
     ToolDefinition {
         name: tool.name.clone(),
         description: tool.description.clone(),
-        parameters: tool
-            .parameters
-            .as_ref()
-            .map(struct_to_json)
-            .unwrap_or_else(|| serde_json::json!({"type": "object", "properties": {}})),
+        parameters,
     }
+}
+
+/// Providers require a top-level `{"type": "object"}` input schema (Anthropic:
+/// `tools.N.custom.input_schema.type: Field required`).
+///
+/// The harness wraps built-in tool schemas as `{jsonSchema, validate}` (its
+/// `Ei()` helper); `JSON.stringify` drops the symbol keys and `validate`, so
+/// the wire carries `{"jsonSchema": {...}}`. Unwrap that, and default a missing
+/// root `type` (argument-less tools send `{}`, unions send only `anyOf`).
+fn object_schema(schema: Value) -> Value {
+    let Value::Object(mut map) = schema else {
+        return serde_json::json!({"type": "object", "properties": {}});
+    };
+    if !map.contains_key("type") && !map.contains_key("properties") {
+        if let Some(Value::Object(inner)) = map.remove("jsonSchema") {
+            return object_schema(Value::Object(inner));
+        }
+    }
+    if !map.contains_key("type") {
+        map.insert("type".into(), Value::String("object".into()));
+    }
+    if map.get("type").and_then(Value::as_str) == Some("object") {
+        map.entry("properties").or_insert_with(|| serde_json::json!({}));
+    }
+    Value::Object(map)
 }
 
 pub fn struct_to_json(value: &prost_types::Struct) -> Value {
@@ -399,6 +480,62 @@ mod tests {
             panic!("expected tool result");
         };
         assert_eq!(result.content, "ok");
+    }
+
+    #[test]
+    fn harness_tool_schemas_become_object_schemas() {
+        // AI-SDK wrapper as serialized by the harness (symbol keys dropped).
+        let wrapped = serde_json::json!({"jsonSchema": {"type": "object", "properties": {"path": {"type": "string"}}}});
+        assert_eq!(
+            object_schema(wrapped),
+            serde_json::json!({"type": "object", "properties": {"path": {"type": "string"}}})
+        );
+        assert_eq!(object_schema(serde_json::json!({})), serde_json::json!({"type": "object", "properties": {}}));
+        assert_eq!(
+            object_schema(serde_json::json!({"jsonSchema": {}})),
+            serde_json::json!({"type": "object", "properties": {}})
+        );
+        assert_eq!(object_schema(Value::Null)["type"], "object");
+        let union = object_schema(serde_json::json!({"anyOf": [{"type": "object"}]}));
+        assert_eq!(union["type"], "object");
+    }
+
+    #[test]
+    fn freeform_tools_round_trip_raw_text() {
+        let schema = json_to_struct(&serde_json::json!({
+            "jsonSchema": {"type": "object", "properties": {"patch": {"type": "string"}}}
+        }));
+        let request = ri::InferenceStreamRequest {
+            tools: vec![ri::InferenceAgentTool {
+                name: "ApplyPatch".into(),
+                parameters: schema,
+                custom_tool_format: Some(ri::InferenceCustomToolFormat {
+                    r#type: "grammar".into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            messages: vec![InferenceCoreMessage {
+                role: ri::ROLE_ASSISTANT,
+                tool_calls: vec![InferenceToolCall {
+                    tool_call_id: "c".into(),
+                    tool_name: "ApplyPatch".into(),
+                    args: None,
+                    raw_tool_call_args: Some("*** Begin Patch".into()),
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let freeform = freeform_tools(&request);
+        assert_eq!(freeform.get("ApplyPatch").map(String::as_str), Some("patch"));
+        assert_eq!(freeform_args("{\"patch\":\"*** Begin Patch\\n\"}", "patch"), "*** Begin Patch\n");
+        let converted = model_request(&request, ModelSpec::new("m")).unwrap();
+        assert_eq!(converted.prompt.tools[0].parameters["properties"]["patch"]["type"], "string");
+        let ProjectedContent::Assistant { calls, .. } = &converted.history[0].content else {
+            panic!("expected assistant");
+        };
+        assert_eq!(calls[0].arguments, serde_json::json!({"patch": "*** Begin Patch"}));
     }
 
     #[test]

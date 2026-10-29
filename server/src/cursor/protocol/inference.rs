@@ -241,8 +241,22 @@ pub struct InferenceAgentTool {
     pub name: String,
     #[prost(string, tag = "2")]
     pub description: String,
+    /// Serialized AI-SDK schema object: `{"jsonSchema": {...}}`.
     #[prost(message, optional, tag = "3")]
     pub parameters: Option<::prost_types::Struct>,
+    /// Freeform (grammar) tools such as ApplyPatch take raw text arguments.
+    #[prost(message, optional, tag = "4")]
+    pub custom_tool_format: Option<InferenceCustomToolFormat>,
+}
+
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct InferenceCustomToolFormat {
+    #[prost(string, tag = "1")]
+    pub r#type: String,
+    #[prost(string, tag = "2")]
+    pub definition: String,
+    #[prost(string, tag = "3")]
+    pub syntax: String,
 }
 
 
