@@ -1,0 +1,104 @@
+﻿message RunInferenceClientMessage { 1 run_request RunInferenceRunRequest oneof message; 2 invoke_model RunInferenceInvokeModel oneof message; 3 cancel_invocation RunInferenceCancelInvocation oneof message; 4 finish_run RunInferenceFinishRun oneof message; 5 client_heartbeat RunInferenceClientHeartbeat oneof message; 6 agent_event RunInferenceAgentEvent oneof message; 7 run_request_log RunInferenceRunRequestLog oneof message; 9 resolve_subagent_models RunInferenceResolveSubagentModels oneof message; 10 client_first_call_timings RunInferenceClientFirstCallTimings oneof message; 11 delta_base_seed RunInferenceDeltaBaseSeed oneof message }
+message RunInferenceServerMessage { 1 heartbeat RunInferenceHeartbeat oneof message; 2 run_ready RunInferenceRunReady oneof message; 3 invocation_response RunInferenceInvocationResponse oneof message; 4 invocation_end RunInferenceInvocationEnd oneof message; 5 subagent_models_resolved RunInferenceSubagentModelsResolved oneof message }
+message RunInferenceRunRequest { 1 conversation_id string; 2 conversation_group_id string?; 3 requested_model InferenceRequestedModel; 4 routing_conversation RunInferenceRoutingMessage*; 5 agent_mode string?; 6 subagent_type_name string?; 7 selected_subagent_models InferenceRequestedModel*; 8 subagent_model_overrides RunInferenceSubagentModelOverride*; 9 is_summarize_action bool?; 10 supports_long_reasoning_reminder bool; 11 agent_module RunInferenceAgentModule?; 12 previous_request_id string?; 15 execute_plan RunInferenceExecutePlan?; 16 turn_agent_mode string?; 17 supports_agent_loop_error bool; 18 supports_delta_invocations bool; 19 cached_config_fingerprint bytes?; 20 speculative_invocations bool; 21 sends_client_first_call_timings bool; 22 prewarm bool; 25 supports_model_handles bool?; 26 compresses_speculative_invocations bool; 27 supports_delta_base_seeds bool }
+message RunInferenceInvokeModel { 1 invocation_id string; 2 request InferenceStreamRequest; 3 purpose RunInferenceInvocationPurpose; 4 tool_call_batches RunInferenceToolCallBatch*; 5 delta_base RunInferenceDeltaBase?; 6 config_fingerprint bytes?; 7 compressed_request RunInferenceCompressedRequest; 8 request_encoding_arm RunInferenceRequestEncodingArm }
+message RunInferenceCancelInvocation { 1 invocation_id string }
+message RunInferenceFinishRun { 1 aborted bool; 2 turn_completed bool?; 3 tool_call_batches RunInferenceToolCallBatch* }
+message RunInferenceClientHeartbeat { 1 first_call_timings RunInferenceClientFirstCallTimings }
+message RunInferenceAgentEvent { 1 method_name string; 2 options_json string; 3 client_reported_at_ms int64? }
+message RunInferenceRunRequestLog { 1 agent_run_request bytes }
+message RunInferenceResolveSubagentModels { 1 resolution_id string; 2 requested_models string* }
+message RunInferenceClientFirstCallTimings { 1 invocation_id string; 2 attempt_start_to_stream_open_ms double?; 3 stream_open_to_first_server_byte_ms double?; 4 stream_open_to_run_ready_ms double?; 5 run_ready_to_agent_config_ms double?; 6 agent_config_to_run_stream_ms double?; 7 run_stream_to_first_invocation_ms double?; 8 first_invocation_to_frame_handed_ms double?; 9 frame_handed_to_write_settled_ms double?; 10 run_ready_to_frame_handed_ms double?; 11 experiment_arm string?; 12 frame_handed_to_encode_start_ms double?; 13 frame_encode_ms double?; 14 frame_encoded_to_write_settled_ms double?; 15 frame_bytes uint32?; 16 prewarm_skip_reason string? }
+message RunInferenceDeltaBaseSeed { 1 invocation_id string; 2 request InferenceStreamRequest; 3 compressed_request RunInferenceCompressedRequest }
+message RunInferenceHeartbeat { 1 accepts_speculative_invocations bool; 2 accepts_compressed_speculative_invocations bool }
+message RunInferenceRunReady { 1 resolved_model InferenceRequestedModel; 2 supports_self_summary bool; 3 routed_model_display_name string?; 4 prompt_model_metadata RunInferencePromptModelMetadata; 5 summarization RunInferenceSummarizationConfig; 6 non_file_rules CursorRule*; 7 accepts_client_heartbeat bool; 8 accepts_agent_events bool; 10 agent_run_request_log_requested bool; 9 kv_blob_telemetry_enabled bool; 13 accepts_aborted_finish bool; 12 metric_labels map<string,string>; 14 accepts_subagent_model_resolution bool; 15 accepts_tool_call_events bool; 16 accepts_client_first_call_timings bool; 17 config_fingerprint bytes; 18 accepts_delta_invocations bool; 19 request_compression RunInferenceRequestCompression; 20 thinking_notes RunInferenceThinkingNotesConfig; 21 self_summary_flavor string?; 22 self_summary_include_transcript bool; 23 accepts_client_first_call_timings_on_heartbeat bool; 24 routing_conversation_unread bool; 25 prompt_cache_refill RunInferencePromptCacheRefillConfig; 26 labeling_usage_token string?; 27 accepts_delta_base_seeds bool }
+message RunInferenceInvocationResponse { 1 invocation_id string; 2 response InferenceStreamResponse }
+message RunInferenceInvocationEnd { 1 invocation_id string; 2 error RunInferenceInvocationError?; 3 delta_refused RunInferenceDeltaRefusal? }
+message RunInferenceSubagentModelsResolved { 1 resolution_id string; 2 models RunInferenceResolvedSubagentModel* }
+message InferenceRequestedModel { 1 model_id string; 2 max_mode bool; 3 parameters InferenceModelParameterValue*; 4 built_in_model bool }
+message RunInferenceRoutingMessage { 1 role RunInferenceRoutingRole; 2 text string }
+message RunInferenceSubagentModelOverride { 1 subagent_type string; 2 model InferenceRequestedModel oneof selection; 3 inherit bool oneof selection; 4 disabled bool oneof selection }
+message RunInferenceAgentModule { 1 generation string; 2 source RunInferenceAgentModuleSource; 3 channel string; 4 commit string?; 5 interface_revision uint32; 6 prompt_versions string* }
+message RunInferenceExecutePlan { 1 plan_file_uri string?; 2 plan_file_content string? }
+message InferenceStreamRequest { 1 messages InferenceCoreMessage*; 2 tools InferenceAgentTool*; 3 provider_defined_tools InferenceNamedProviderDefinedTool*; 4 model_config InferenceModelConfig?; 5 model_id string?; 6 invocation_id string?; 7 requested_model InferenceRequestedModel?; 8 conversation_id string?; 9 accepted_unadvertised_tool_names string*; 10 automation_id string?; 11 inference_reason InferenceReason?; 12 conversation_group_id string?; 13 parent_request_id string?; 14 root_parent_request_id string?; 15 parent_agent_tool_call_id string?; 16 subagent_type string?; 17 compaction_epoch int32?; 18 turn_unit_id string?; 19 turn_unit_type string?; 20 originating_flow string?; 21 routing_reason string?; 22 summarized_message_count int32?; 23 is_simulated_msg bool?; 24 simulated_msg_reason int32?; 25 parent_conversation_call bool?; 26 system_static_prefix_length int32?; 27 compaction_trigger InferenceCompactionTrigger?; 28 automation_next_run_within_hour bool?; 29 automation_previous_run_within_hour bool? }
+enum RunInferenceInvocationPurpose { 0 UNSPECIFIED; 1 CONTEXT_SUMMARIZATION; 2 THINKING_NOTE; 3 PROMPT_CACHE_REFILL }
+message RunInferenceToolCallBatch { 1 invocation_id string?; 2 tool_calls RunInferenceToolCallEvent* }
+message RunInferenceDeltaBase { 1 invocation_id string; 2 message_count uint32; 3 prefix_sha256 bytes; 4 reuse_tools bool; 5 request_sha256 bytes }
+message RunInferenceCompressedRequest { 1 encoding RunInferenceRequestEncoding; 2 decoded_size uint32; 3 data bytes }
+enum RunInferenceRequestEncodingArm { 0 UNSPECIFIED; 1 CONTROL; 2 TREATMENT }
+message RunInferencePromptModelMetadata { 1 vendor string; 2 prompt_version string; 3 is_sonnet45 bool; 4 is_gemini3 bool; 5 is_gpt51 bool; 6 is_gpt52 bool; 7 is_gpt5 bool; 8 is_gpt55 bool; 9 is_gpt56 bool; 10 is_sonnet4 bool; 11 is_codex_family bool; 12 is_gpt54 bool; 13 is_gpt52_codex bool; 14 is_gpt53_codex bool; 15 is_gpt53_codex_spark bool; 16 is_claude_4x bool; 17 is_opus45 bool; 18 is_opus46 bool; 19 is_opus48 bool; 20 is_opus5 bool; 50 is_opus55 bool; 21 is_fable5 bool; 43 is_fable51 bool; 22 is_fruitcake bool; 23 is_gpt5_family bool; 24 is_composer1 bool; 25 is_composer15 bool; 26 is_composer2 bool; 27 is_composer_matterhorn bool; 28 is_grok45_product_prompt bool; 29 is_raw_training_slug bool; 34 is_grok46_product_prompt bool; 30 reasoning_effort string?; 31 use_dsv3_harness bool; 32 agent_token_limit int32?; 33 estimated_cache_ttl_ms int32?; 35 persona string; 36 feature_flags map<string,RunInferenceFlagValue>; 37 loop_nudge RunInferenceLoopNudgeConfig?; 38 progress_reminder_threshold int32?; 39 effort_level string?; 40 supports_assistant_message_prefill bool; 41 enable_line_numbers bool; 42 use_sparse_read_line_numbers bool; 44 self_identity_name string; 45 dsv3_is_thinking bool?; 46 agent_mode_configs RunInferenceAgentModeConfig*; 47 use_new_plan_mode_prompts bool?; 48 ask_question_config RunInferenceAskQuestionConfig?; 49 subagent_model_config RunInferenceSubagentModelConfig?; 51 post_tool_reminders RunInferencePostToolReminder*; 52 enable_semantic_search bool?; 53 long_reasoning_reminder RunInferenceLongReasoningReminderConfig?; 54 smart_mode_classifier_mode bool?; 55 smart_mode_classifier_shadow_mode bool?; 56 auto_ab_layer_admitted bool?; 57 attribution_model_handle string?; 58 stamp_image_content_sha256 bool?; 59 smart_mode_classifier_invoked_files bool?; 60 prompt_key string? }
+message RunInferenceSummarizationConfig { 1 model InferenceRequestedModel; 2 is_fallback_to_main_model bool; 3 max_prompt_chars int32; 4 background RunInferenceBackgroundSummarizationConfig }
+message CursorRule { 1 full_path string; 2 content string; 3 type CursorRuleType; 4 source CursorRuleSource; 5 git_remote_origin string?; 6 parse_error string?; 7 environments string*; 8 disabled_environments string*; 9 plugin string?; 10 marketplace string?; 11 plugin_id string?; 12 marketplace_id string?; 13 scoped_to string*; 14 frontmatter string; 15 is_required bool?; 16 warnings string*; 17 body_omitted bool? }
+message RunInferenceRequestCompression { 1 encodings RunInferenceRequestEncoding*; 2 max_decoded_bytes uint32; 3 treatment_percent uint32 }
+message RunInferenceThinkingNotesConfig { 1 model InferenceRequestedModel }
+message RunInferencePromptCacheRefillConfig { 1 idle_threshold_ms uint32 }
+message InferenceStreamResponse { 1 text_part InferenceTextStreamPart oneof response; 2 tool_call_part InferenceToolCallStreamPart oneof response; 3 usage InferenceTextStreamPart oneof response; 4 response_info InferenceResponseInfo oneof response; 5 extended_usage InferenceExtendedUsageInfo oneof response; 6 provider_metadata InferenceProviderMetadataInfo oneof response; 7 invocation_id InferenceResponseMessage oneof response; 8 error InferenceStreamError oneof response; 9 thinking_part InferenceThinkingStreamPart oneof response; 10 image_descriptions InferenceImageDescriptionsInfo oneof response; 11 lineage_tags InferenceLineageTagsInfo oneof response; 12 first_output_timing InferenceFirstOutputTiming }
+message RunInferenceInvocationError { 1 code int32; 2 message string; 3 details RunInferenceErrorDetail*; 4 refusal RunInferenceInvocationRefusal }
+enum RunInferenceDeltaRefusal { 0 UNSPECIFIED; 1 BASE_UNKNOWN; 2 BASE_TOO_SHORT; 3 PREFIX_MISMATCH; 4 REQUEST_MISMATCH; 5 NOT_ACCEPTED }
+message RunInferenceResolvedSubagentModel { 1 requested string; 2 resolved_slug string?; 3 policy RunInferenceSubagentModelPolicy? }
+message InferenceModelParameterValue { 1 id string; 2 value string }
+enum RunInferenceRoutingRole { 0 UNSPECIFIED; 1 USER; 2 ASSISTANT }
+enum RunInferenceAgentModuleSource { 0 UNSPECIFIED; 1 STATIC; 2 FLOOR; 3 INSTALLED }
+message InferenceCoreMessage { 1 role InferenceMessageRole; 2 text string oneof content; 3 parts InferenceContentParts oneof content; 6 tool_content InferenceToolResultContent oneof content; 4 tool_calls InferenceToolCall*; 7 reasoning_parts InferenceReasoningPart*; 8 model_provider_message_id string?; 9 openai_phase string?; 10 openai_phase_null bool?; 11 cursor_inference_reason string?; 12 cursor_feature_type string?; 13 cursor_is_summary bool?; 21 cursor_skip_prompt_cache bool?; 14 cursor_clear_at string?; 15 cursor_fallback_insert_before string?; 16 assistant_part_order InferenceAssistantPartKind*; 17 assistant_text_parts string*; 18 anthropic_native_content string?; 19 lineage_tag string?; 20 cursor_request_id string? }
+message InferenceAgentTool { 1 name string; 2 description string; 3 parameters ?gn; 4 custom_tool_format InferenceCustomToolFormat? }
+message InferenceNamedProviderDefinedTool { 1 name string; 2 id string; 3 type string; 4 options ?gn }
+message InferenceModelConfig { 1 max_tokens int32?; 2 temperature float?; 3 top_p float?; 4 stop_sequences string*; 5 top_k int32?; 6 chat_template_kwargs ?gn?; 7 continue_final_message bool? }
+enum InferenceReason { 0 UNSPECIFIED; 1 GEMINI_VIDEO_SUBAGENT; 2 GROK_BOT_PROACTIVITY_SUBAGENT }
+message InferenceCompactionTrigger { 1 used_tokens int32?; 2 reserved_tokens int32?; 3 window_fraction double? }
+message RunInferenceToolCallEvent { 1 tool_call_id string; 2 tool_identifier string; 3 started_at_ms int64; 4 ended_at_ms int64; 5 success bool; 6 error_class string?; 7 error_classification string?; 8 result_chars uint32?; 9 result_images uint32? }
+enum RunInferenceRequestEncoding { 0 UNSPECIFIED; 1 ZSTD; 2 GZIP }
+message RunInferenceFlagValue { 1 bool_value bool oneof value; 2 number_value double oneof value; 3 string_value string oneof value }
+message RunInferenceLoopNudgeConfig { 1 min_repetitions int32; 2 min_message_length int32; 3 inject_reminder bool }
+message RunInferenceAgentModeConfig { 1 mode_id string; 2 enable_ask_question_tool bool; 3 switch_mode_tool_config RunInferenceSwitchModeToolConfig? }
+message RunInferenceAskQuestionConfig { 1 tool_name string; 2 auto_reject_first bool }
+message RunInferenceSubagentModelConfig { 1 force_policy string; 2 force_model_id string?; 3 parent_max_mode bool; 4 models RunInferenceSubagentModelPolicy*; 5 overrides RunInferenceResolvedSubagentModelOverride*; 6 task_tool_omitted bool; 7 parent_requested_model_name string }
+message RunInferencePostToolReminder { 1 id string; 2 interval_tool_calls uint32? }
+message RunInferenceLongReasoningReminderConfig { 1 arm string; 2 enabled bool; 3 threshold_tokens uint32; 4 delay_calls uint32; 5 reminder_text string }
+message RunInferenceBackgroundSummarizationConfig { 1 unused_tokens_threshold_to_start int32?; 2 unused_percent_tokens_threshold_to_start double?; 3 unused_tokens_threshold_to_persist int32?; 4 unused_percent_tokens_threshold_to_persist double?; 5 require_trigger_threshold_for_mid_loop_persist bool; 6 discard_on_error bool }
+message CursorRuleType { 1 global CursorRuleTypeGlobal oneof type; 2 file_globbed CursorRuleTypeFileGlobs oneof type; 3 agent_fetched CursorRuleTypeAgentFetched oneof type; 4 manually_attached CursorRuleTypeManuallyAttached oneof type }
+enum CursorRuleSource { 0 UNSPECIFIED; 1 TEAM; 2 USER }
+message InferenceTextStreamPart { 1 text string; 2 is_final bool }
+message InferenceToolCallStreamPart { 1 tool_call_id string; 2 tool_name string; 3 args string; 4 is_complete bool; 5 tool_index int32?; 6 call_signature string? }
+message InferenceResponseInfo { 1 id string; 2 model string; 3 created_at int64; 4 messages InferenceResponseMessage*; 5 error_message string?; 6 inference_extra_data InferenceExtraData?; 7 supports_self_summary bool?; 8 early_compaction_context_token_threshold int32?; 9 self_summary_flavor string? }
+message InferenceExtendedUsageInfo { 1 input_tokens int32; 2 output_tokens int32; 3 cache_read_tokens int32; 4 cache_write_tokens int32; 5 max_tokens int32; 6 reasoning_tokens int32? }
+message InferenceProviderMetadataInfo { 1 metadata ?gn }
+message InferenceResponseMessage { 1 id string; 2 role InferenceMessageRole; 3 content string?; 4 tool_calls InferenceToolCall*; 5 tool_result InferenceToolResultContent?; 6 reasoning_parts InferenceReasoningPart*; 7 model_provider_message_id string?; 8 openai_phase string?; 9 openai_phase_null bool?; 10 assistant_part_order InferenceAssistantPartKind*; 11 assistant_text_parts string*; 12 anthropic_native_content string?; 13 lineage_tag string? }
+message InferenceStreamError { 1 message string; 2 code string; 3 is_input_token_limit_error bool; 4 is_output_token_limit_error bool; 5 error_type InferenceStreamErrorType }
+message InferenceThinkingStreamPart { 1 text string; 2 signature string?; 3 is_final bool; 4 is_already_summarized bool?; 5 model_name string?; 6 redacted_data string? }
+message InferenceImageDescriptionsInfo { 1 descriptions InferenceImageDescription* }
+message InferenceLineageTagsInfo { 1 tags InferenceLineageTag* }
+message InferenceFirstOutputTiming { 1 provider_ttft_ms double; 2 server_first_output_ms double; 3 server_dispatch_ms double }
+message RunInferenceErrorDetail { 1 type string; 2 value bytes }
+enum RunInferenceInvocationRefusal { 0 UNSPECIFIED; 1 CONFIG_MISMATCH }
+message RunInferenceSubagentModelPolicy { 1 slug string; 2 advertised bool; 3 valid bool; 4 blocked bool; 5 requires_max_mode bool; 6 representative_cost_dollars double; 7 legacy_aliases string*; 8 turned_off_by_user bool }
+enum InferenceMessageRole { 0 UNSPECIFIED; 1 USER; 2 ASSISTANT; 3 TOOL; 4 SYSTEM }
+message InferenceContentParts { 1 parts InferenceContentPart* }
+message InferenceToolResultContent { 1 parts InferenceToolResultPart* }
+message InferenceToolCall { 1 tool_call_id string; 2 tool_name string; 3 args ?gn; 4 raw_tool_call_args string? }
+message InferenceReasoningPart { 1 is_redacted bool; 2 text string; 3 signature string?; 4 redacted_data string?; 5 model_name string?; 6 lineage_tag string? }
+enum InferenceAssistantPartKind { 0 UNSPECIFIED; 1 REASONING; 2 TEXT; 3 TOOL_CALL }
+// missing ?gn
+message InferenceCustomToolFormat { 1 type string; 2 definition string; 3 syntax string }
+message RunInferenceSwitchModeToolConfig { 1 target_modes string* }
+message RunInferenceResolvedSubagentModelOverride { 1 subagent_type string; 2 kind string; 3 model_id string? }
+message CursorRuleTypeGlobal { CursorRuleTypeGlobal   }
+message CursorRuleTypeFileGlobs { 1 globs string* }
+message CursorRuleTypeAgentFetched { 1 description string }
+message CursorRuleTypeManuallyAttached { CursorRuleTypeManuallyAttached   }
+message InferenceExtraData { 1 token_logprobs InferenceTokenLogprobs*; 2 token_ids InferenceTokenIds*; 3 prompt_token_ids InferenceTokenIds*; 4 extra_tokens InferenceTokenIds*; 5 extra_logprobs InferenceTokenLogprobs*; 6 routing_matrix InferenceRoutingRow* }
+enum InferenceStreamErrorType { 0 UNSPECIFIED; 1 UNKNOWN; 2 INPUT_TOKEN_LIMIT; 3 OUTPUT_TOKEN_LIMIT; 4 RATE_LIMIT; 5 AUTHENTICATION; 6 PERMISSION; 7 OVERLOADED; 8 CONTENT_FILTER }
+message InferenceImageDescription { 1 message_index int32; 2 part_index int32; 3 exp_content_index int32?; 4 description string }
+message InferenceLineageTag { 1 message_index int32; 2 tag string; 3 reasoning_tags string* }
+message InferenceContentPart { 1 text InferenceTextPart oneof part; 2 image InferenceImagePart oneof part; 3 file InferenceFilePart oneof part }
+message InferenceToolResultPart { 1 tool_call_id string; 2 tool_name string; 3 result ?tr; 4 is_error bool; 5 experimental_content InferenceContentPart*; 6 provider_options InferenceProviderOptions?; 7 cursor_tool_call_is_error bool? }
+message InferenceTokenLogprobs { 1 values double* }
+message InferenceTokenIds { 1 values int64* }
+message InferenceRoutingRow { 1 values string* }
+message InferenceTextPart { 1 text string; 2 provider_options InferenceProviderOptions? }
+message InferenceImagePart { 1 data string; 2 mime_type string?; 3 provider_options InferenceProviderOptions? }
+message InferenceFilePart { 1 data string; 2 media_type string; 3 filename string?; 4 provider_options InferenceProviderOptions? }
+// missing ?tr
+message InferenceProviderOptions { 1 anthropic InferenceAnthropicOptions?; 2 cursor InferenceCursorOptions? }
+message InferenceAnthropicOptions { 1 cache_control InferenceCacheControl? }
+message InferenceCursorOptions { 1 image_description string?; 2 image_descriptions map<int32,string>; 3 image_content_sha256 string? }
+message InferenceCacheControl { 1 type string }

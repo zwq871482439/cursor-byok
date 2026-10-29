@@ -39,6 +39,7 @@ struct RegistryInner {
     web_cache: WebCache,
     plugins: Option<PluginRegistry>,
     conversations: ConversationRegistry,
+    inference: crate::api::cursor::inference::InferenceSessions,
 }
 
 #[derive(Clone)]
@@ -127,6 +128,7 @@ impl TransportRegistry {
                 store,
                 web_cache,
                 plugins,
+                inference: Default::default(),
             }),
         }
     }
@@ -152,6 +154,15 @@ impl TransportRegistry {
 
     pub fn conversations(&self) -> &ConversationRegistry {
         &self.inner.conversations
+    }
+
+    /// Locally served `InferenceService/RunInference` sessions.
+    pub fn inference(&self) -> &crate::api::cursor::inference::InferenceSessions {
+        &self.inner.inference
+    }
+
+    pub fn provider(&self) -> Arc<dyn Provider> {
+        self.inner.conversations.dependencies().provider.clone()
     }
 
     pub async fn get_or_create(&self, request_id: &str) -> Result<TransportHandle> {

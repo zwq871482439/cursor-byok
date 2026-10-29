@@ -10,7 +10,7 @@ use tower_http::decompression::RequestDecompressionLayer;
 
 use crate::{
     api::cursor::{
-        bidi,
+        bidi, inference,
         proxy::{self, CursorProxy},
         run_sse,
     },
@@ -48,6 +48,14 @@ fn router_with_proxy(
         .route("/__byok-api__/healthz", get(health))
         .route("/agent.v1.AgentService/RunSSE", post(run_sse_handler))
         .route("/aiserver.v1.BidiService/BidiAppend", post(bidi_handler))
+        .route(
+            "/aiserver.v1.InferenceService/RunInferenceSSE",
+            post(run_inference_sse_handler),
+        )
+        .route(
+            "/aiserver.v1.InferenceService/RunInferencePoll",
+            post(run_inference_poll_handler),
+        )
         .route(
             "/aiserver.v1.AiService/AvailableDocs",
             post(compatibility::available_docs),
@@ -237,15 +245,22 @@ async fn bidi_handler(
         .as_ref()
         .map(|id| id.request_id.clone())
         .unwrap_or_default();
+    if !request_id.is_empty() && registry.inference().get(&request_id).is_some() {
+        // Follow-up append (invoke_model / cancel / finish) on a local run.
+        return inference_append(&registry, &request, &request_id, "").await;
+    }
     if bidi::is_run_inference_append(&request) {
-        // Cursor's client-driven RunInference stream, not AgentService/Run.
-        // BYOK cannot serve it locally; hand it to Cursor unchanged instead of
-        // mis-decoding it as an AgentClientMessage (which produced runs with
-        // no user message -> "assistant message prefill" 400s).
-        tracing::warn!(
-            request_id,
-            "BidiAppend is aiserver.v1.RunInferenceClientMessage; forwarding upstream"
-        );
+        // Cursor's managed-local-run harness: InferenceService/RunInference.
+        let payload = hex::decode(&request.data)
+            .map_err(|error| crate::Error::Protocol(format!("invalid BidiAppend hex: {error}")))?;
+        let message = inference::decode_client_message(&payload)?;
+        let model = inference::requested_model_id(&message).unwrap_or_default().to_owned();
+        let local_model = registry.store().model(&model).await?;
+        if model.starts_with(crate::plugin::ADAPTER_ID_PREFIX) || local_model.is_some() {
+            let vendor = local_model.map_or("unknown", |config| inference_vendor(config.provider_type()));
+            return inference_append(&registry, &request, &request_id, vendor).await;
+        }
+        tracing::info!(request_id, model, "RunInference for a Cursor model; forwarding upstream");
         if !request_id.is_empty() {
             registry.mark_upstream(&request_id).await;
         }
@@ -377,6 +392,106 @@ async fn bidi_handler(
         HeaderValue::from_static("application/proto"),
     );
     Ok(response)
+}
+
+async fn inference_append(
+    registry: &TransportRegistry,
+    request: &ai::BidiAppendRequest,
+    request_id: &str,
+    vendor: &'static str,
+) -> Result<Response<Body>> {
+    if request_id.is_empty() {
+        return Err(crate::Error::Protocol("RunInference BidiAppend has no request_id".into()));
+    }
+    let payload = hex::decode(&request.data)
+        .map_err(|error| crate::Error::Protocol(format!("invalid BidiAppend hex: {error}")))?;
+    let message = inference::decode_client_message(&payload)?;
+    registry.inference().append(
+        request_id,
+        request.append_seqno,
+        message,
+        registry.provider(),
+        vendor,
+    )?;
+    let mut response = Response::new(Body::from(connect::encode_message(&ai::BidiAppendResponse {})?));
+    *response.status_mut() = StatusCode::OK;
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/proto"),
+    );
+    Ok(response)
+}
+
+/// `run_ready.prompt_model_metadata.vendor` selects the harness prompt family.
+fn inference_vendor(kind: crate::model::ProviderType) -> &'static str {
+    match kind {
+        crate::model::ProviderType::Anthropic => "anthropic",
+        crate::model::ProviderType::OpenAiChat | crate::model::ProviderType::OpenAiResponses => {
+            "openai"
+        }
+        crate::model::ProviderType::Plugin => "unknown",
+    }
+}
+
+async fn run_inference_sse_handler(
+    State(registry): State<TransportRegistry>,
+    Extension(proxy): Extension<CursorProxy>,
+    request: Request<Body>,
+) -> Result<Response<Body>> {
+    let (parts, body) = buffered(request).await?;
+    let request: ai::BidiRequestId = connect::decode_unary(&body)?;
+    match wait_inference(&registry, &request.request_id).await {
+        Some(session) => Ok(inference_stream(session, inference::Downstream::Sse)),
+        None => proxy::forward(Extension(proxy), Request::from_parts(parts, Body::from(body))).await,
+    }
+}
+
+async fn run_inference_poll_handler(
+    State(registry): State<TransportRegistry>,
+    Extension(proxy): Extension<CursorProxy>,
+    request: Request<Body>,
+) -> Result<Response<Body>> {
+    let (parts, body) = buffered(request).await?;
+    let poll: crate::cursor::protocol::inference::BidiPollRequest = connect::decode_unary(&body)?;
+    let request_id = poll.request_id.map(|id| id.request_id).unwrap_or_default();
+    match wait_inference(&registry, &request_id).await {
+        Some(session) => Ok(inference_stream(session, inference::Downstream::Poll)),
+        None => proxy::forward(Extension(proxy), Request::from_parts(parts, Body::from(body))).await,
+    }
+}
+
+/// The downstream request can race the first BidiAppend; wait briefly for
+/// either a local session or an upstream route before falling through.
+async fn wait_inference(
+    registry: &TransportRegistry,
+    request_id: &str,
+) -> Option<std::sync::Arc<inference::Session>> {
+    for _ in 0..100 {
+        if let Some(session) = registry.inference().get(request_id) {
+            return Some(session);
+        }
+        if registry.upstream(request_id).await {
+            return None;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    None
+}
+
+fn inference_stream(
+    session: std::sync::Arc<inference::Session>,
+    mode: inference::Downstream,
+) -> Response<Body> {
+    let mut response = Response::new(Body::from_stream(session.downstream(mode)));
+    *response.status_mut() = StatusCode::OK;
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/connect+proto"),
+    );
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    response
 }
 
 fn trace_outcome(
