@@ -241,6 +241,45 @@ pub fn clear_conversation_state(payload: &[u8]) -> Option<(Vec<u8>, SanitizeNote
     Some((repaired, notes))
 }
 
+/// Drop AgentRunRequest top-level fields that individually fail to decode.
+///
+/// Newer Cursor builds reuse ARR tags with different types (e.g. field 7 as
+/// repeated model entries instead of `SkillOptions`, field 17/18/25 as varints).
+/// prost rejects the whole message on such drift, so after CSS repair we test
+/// each ARR field in isolation (wrapped in an ACM) with `decodes` and keep only
+/// fields that parse. Field 1 (conversation_state) is always kept.
+pub fn prune_run_request_fields(
+    payload: &[u8],
+    decodes: impl Fn(&[u8]) -> bool,
+) -> Option<(Vec<u8>, SanitizeNotes)> {
+    let mut notes = SanitizeNotes::default();
+    let run = extract_ld(payload, ACM_RUN_REQUEST)?;
+    let mut kept = Vec::with_capacity(run.len());
+    let mut i = 0usize;
+    while i < run.len() {
+        let start = i;
+        let Some((tag, j)) = read_varint(&run, i) else {
+            notes.push(format!("truncate ARR: bad varint @ {start}"));
+            break;
+        };
+        let field = (tag >> 3) as u32;
+        let wt = (tag & 7) as u8;
+        let Some(end) = skip_value(&run, j, wt) else {
+            notes.push(format!("truncate ARR: cannot skip field {field} wire={wt} @ {start}"));
+            break;
+        };
+        let chunk = &run[start..end];
+        if field == ARR_CONVERSATION_STATE || decodes(&ld_field(ACM_RUN_REQUEST, chunk)) {
+            kept.extend_from_slice(chunk);
+        } else {
+            notes.push(format!("drop ARR field {field} wire={wt} len={} @ {start}", end - start));
+        }
+        i = end;
+    }
+    let repaired = replace_ld(payload, ACM_RUN_REQUEST, &kept)?;
+    Some((repaired, notes))
+}
+
 fn wire_dump_dir() -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     let dir = home.join(".cursor-byok-v3").join("logs").join("wire-dumps");
@@ -375,5 +414,31 @@ mod tests {
         assert!(css2.is_empty());
         crate::cursor::protocol::proto::agent::v1::AgentClientMessage::decode(cleared.as_slice())
             .expect("decode cleared");
+    }
+}
+
+
+#[cfg(test)]
+mod regression_1793268574329 {
+    //! Cursor request bb9c24b5 (2026-10-29): UUID-as-CSS plus ARR field drift
+    //! (field 7 repeated model entries vs SkillOptions, varint 17/18/25).
+    use super::*;
+    use crate::cursor::protocol::proto::agent::v1::AgentClientMessage;
+    use prost::Message;
+
+    const RAW_HEX: &str = "0ac7040a2435386361363331622d336563302d343630332d613930302d3230383336376532376664351a450a10643431353338633365633564626464631a0f0a07636f6e7465787412043530306b1a110a09726561736f6e696e671204686967681a0d0a0466617374120566616c73652a056167656e743a090a0764656661756c743a430a0867726f6b2d342e371a0f0a07636f6e7465787412043235366b1a180a10726561736f6e696e675f6566666f72741204686967681a0c0a04666173741204747275653a280a0867726f6b2d342e361a0d0a066566666f727412036c6f771a0d0a0466617374120566616c73653a450a10643431353338633365633564626464631a0f0a07636f6e7465787412043530306b1a110a09726561736f6e696e671204686967681a0d0a0466617374120566616c7365420b0a076578706c6f7265200150015ac3010a406239353139313165343437363532353038626136346234623230396365623537363237313065313432336465646466373038326136626539336263613763626310031a06737461626c6522286237396630623139336539643532666237336333376134663665363934636566373462343863636128023209647376332d313031383209647376332d31323035320b637572736f722d3032323632066c6174657374320a677074352d636f646578320b636f6465782d636c6f756432056861696b75622432636530613434362d383161332d343565362d396439392d3362656633386566643337318201056167656e74880101900101b00101c80101d80101";
+
+    #[test]
+    fn wire_sanitize_bb9c24b5_uuid_css_plus_arr_drift_decodes() {
+        let raw = hex::decode(RAW_HEX).unwrap();
+        assert!(AgentClientMessage::decode(raw.as_slice()).is_err());
+        let (rep, _) = sanitize_agent_client_message(&raw).unwrap();
+        // CSS repair alone is not enough for this payload.
+        assert!(AgentClientMessage::decode(rep.as_slice()).is_err());
+        let (pruned, notes) =
+            prune_run_request_fields(&rep, |b| AgentClientMessage::decode(b).is_ok()).unwrap();
+        eprintln!("prune notes={:?}", notes.lines);
+        let msg = AgentClientMessage::decode(pruned.as_slice()).expect("pruned must decode");
+        assert!(msg.message.is_some());
     }
 }

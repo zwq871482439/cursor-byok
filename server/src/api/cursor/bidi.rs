@@ -230,6 +230,31 @@ fn decode_agent_client_message(payload: &[u8]) -> Result<agent::AgentClientMessa
                 }
             }
 
+            // Stage 3: schema drift outside CSS (ARR tags reused with other types).
+            let base = super::wire_sanitize::sanitize_agent_client_message(payload)
+                .map(|(b, _)| b)
+                .or_else(|| super::wire_sanitize::clear_conversation_state(payload).map(|(b, _)| b));
+            if let Some(base) = base {
+                if let Some((pruned, notes)) = super::wire_sanitize::prune_run_request_fields(
+                    &base,
+                    |b| agent::AgentClientMessage::decode(b).is_ok(),
+                ) {
+                    super::wire_sanitize::dump_wire("prune_arr", payload, Some(&pruned), &notes);
+                    match agent::AgentClientMessage::decode(pruned.as_slice()) {
+                        Ok(message) => {
+                            tracing::warn!(
+                                notes = ?notes.lines,
+                                "AgentClientMessage recovered via prune_run_request_fields"
+                            );
+                            return Ok(message);
+                        }
+                        Err(prune_err) => {
+                            tracing::warn!(error = %prune_err, "prune_run_request_fields decode failed");
+                        }
+                    }
+                }
+            }
+
             let mut notes = super::wire_sanitize::SanitizeNotes::default();
             notes.push(format!("unrecoverable decode: {first_err}"));
             super::wire_sanitize::dump_wire("fail", payload, None, &notes);
