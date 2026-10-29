@@ -413,7 +413,10 @@ async fn inference_append(
         registry.provider(),
         vendor,
     )?;
-    let mut response = Response::new(Body::from(connect::encode_message(&ai::BidiAppendResponse {})?));
+    // Unary Connect with `application/proto`: the body is the raw (empty)
+    // BidiAppendResponse, not an enveloped stream frame. A 5-byte envelope is
+    // decoded by the client as tag 0 ("illegal tag: field no 0 wire type 0").
+    let mut response = Response::new(Body::empty());
     *response.status_mut() = StatusCode::OK;
     response.headers_mut().insert(
         header::CONTENT_TYPE,
